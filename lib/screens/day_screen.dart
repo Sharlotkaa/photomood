@@ -73,17 +73,17 @@ class _DayScreenState extends State<DayScreen> {
                         File(widget.entry.imagePath),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
-                          return Center(
+                          return const Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.broken_image,
                                   size: 80,
                                   color: Colors.grey,
                                 ),
-                                const SizedBox(height: 10),
-                                const Text('Фото не найдено'),
+                                SizedBox(height: 10),
+                                Text('Фото не найдено'),
                               ],
                             ),
                           );

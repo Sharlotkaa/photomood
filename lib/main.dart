@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -12,6 +14,10 @@ import 'models/mood_entry.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Инициализируем локализацию для русского языка
+  await initializeDateFormatting('ru_RU', null);
+  
   runApp(const PhotoMoodApp());
 }
 
@@ -31,6 +37,16 @@ class PhotoMoodApp extends StatelessWidget {
           elevation: 1,
         ),
       ),
+      locale: const Locale('ru', 'RU'),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ru', 'RU'), // Русский
+        Locale('en', 'US'), // Английский (запасной вариант)
+      ],
       initialRoute: '/',
       routes: {
         '/': (context) => FutureBuilder<bool>(
@@ -49,7 +65,7 @@ class PhotoMoodApp extends StatelessWidget {
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => const HomeScreen(),
         '/day': (context) {
-          final entry = ModalRoute.of(context)!.settings.arguments as MoodEntry; // Изменено здесь
+          final entry = ModalRoute.of(context)!.settings.arguments as MoodEntry;
           return DayScreen(entry: entry);
         },
         '/add': (context) {
@@ -68,18 +84,18 @@ class SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return const Scaffold(
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
+            Icon(
               Icons.photo_camera,
               size: 80,
               color: Colors.blue,
             ),
-            const SizedBox(height: 20),
-            const Text(
+            SizedBox(height: 20),
+            Text(
               'PhotoMood',
               style: TextStyle(
                 fontSize: 36,
@@ -87,10 +103,10 @@ class SplashScreen extends StatelessWidget {
                 color: Colors.blue,
               ),
             ),
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            const Text(
+            SizedBox(height: 20),
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text(
               'Загрузка...',
               style: TextStyle(color: Colors.grey),
             ),

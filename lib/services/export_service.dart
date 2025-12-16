@@ -10,7 +10,7 @@ class ExportService {
     final directory = await getTemporaryDirectory();
     final file = File('${directory.path}/$fileName');
     
-    final jsonString = JsonEncoder.withIndent('  ').convert(data);
+    final jsonString = const JsonEncoder.withIndent('  ').convert(data);
     await file.writeAsString(jsonString);
     
     return file;
