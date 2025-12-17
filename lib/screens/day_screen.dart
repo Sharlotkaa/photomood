@@ -97,6 +97,50 @@ class _DayScreenState extends State<DayScreen> {
                     style: const TextStyle(fontSize: 60),
                   ),
                   const SizedBox(height: 10),
+                  
+                  // ******** ВСТАВЬТЕ ЭТОТ БЛОК ЗДЕСЬ (после Text с эмодзи) ********
+                  // Местоположение и погода
+                  if (widget.entry.location != null || widget.entry.weather != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (widget.entry.location != null)
+                            Row(
+                              children: [
+                                const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                                const SizedBox(width: 5),
+                                Text(
+                                  widget.entry.location!,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (widget.entry.location != null && widget.entry.weather != null)
+                            const SizedBox(width: 20),
+                          if (widget.entry.weather != null)
+                            Row(
+                              children: [
+                                const Icon(Icons.cloud, size: 16, color: Colors.grey),
+                                const SizedBox(width: 5),
+                                Text(
+                                  widget.entry.weather!,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  // ******** КОНЕЦ БЛОКА ДЛЯ ВСТАВКИ ********
+                  
                   if (widget.entry.note != null && widget.entry.note!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),

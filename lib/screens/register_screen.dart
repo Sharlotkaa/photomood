@@ -15,6 +15,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
 
+  
+
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -34,8 +36,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (success) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
+    Navigator.pushReplacementNamed(context, '/feed'); // ИЗМЕНЕНО
+  }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Ошибка: $e')),

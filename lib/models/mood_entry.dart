@@ -4,6 +4,8 @@ class MoodEntry {
   String imagePath;
   String emotion;
   String? note;
+  String? location; // НОВОЕ
+  String? weather;  // НОВОЕ
 
   MoodEntry({
     this.id,
@@ -11,6 +13,8 @@ class MoodEntry {
     required this.imagePath,
     required this.emotion,
     this.note,
+    this.location, // НОВОЕ
+    this.weather,  // НОВОЕ
   });
 
   Map<String, dynamic> toMap() {
@@ -20,6 +24,8 @@ class MoodEntry {
       'imagePath': imagePath,
       'emotion': emotion,
       'note': note,
+      'location': location, // НОВОЕ
+      'weather': weather,   // НОВОЕ
     };
   }
 
@@ -30,6 +36,8 @@ class MoodEntry {
       imagePath: map['imagePath'],
       emotion: map['emotion'],
       note: map['note'],
+      location: map['location'], // НОВОЕ
+      weather: map['weather'],   // НОВОЕ
     );
   }
 }

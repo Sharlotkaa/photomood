@@ -5,15 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/mood_entry.dart';
 import '../services/database_service.dart';
+import '../widgets/pull_to_refresh_wrapper.dart'; // Добавьте этот импорт вверху файла
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class CalendarScreen extends StatefulWidget {
+  const CalendarScreen({super.key});
 
   @override
-  _HomeScreenState createState() => _HomeScreenState();
+  _CalendarScreenState createState() => _CalendarScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _CalendarScreenState extends State<CalendarScreen> {
   late DateTime _focusedDay;
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
@@ -30,12 +31,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadEntries() async {
-    setState(() => _isLoading = true);
-    
     try {
-      final entries = await DatabaseService().getEntriesForMonth(_focusedDay);
+      setState(() => _isLoading = true);
       
-      // Получаем последние записи с фото и заметками
+      final entries = await DatabaseService().getEntriesForMonth(_focusedDay);
       final allEntries = await DatabaseService().getAllEntries();
       final photoEntries = allEntries
           .where((entry) => (entry.note?.isNotEmpty ?? false) || entry.imagePath.isNotEmpty)
@@ -53,10 +52,16 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       print('Ошибка загрузки: $e');
       setState(() => _isLoading = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка загрузки: $e')),
+        );
+      }
     }
   }
 
-  String _getEmoji(String emotion) {
+  static String _getEmoji(String emotion) {
     switch (emotion) {
       case 'happy': return '😊';
       case 'neutral': return '😐';
@@ -67,7 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Color _getEmotionColor(String emotion) {
+  static Color _getEmotionColor(String emotion) {
     switch (emotion) {
       case 'happy': return Colors.yellow;
       case 'neutral': return Colors.grey;
@@ -78,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  String _getEmotionName(String emotion) {
+  static String _getEmotionName(String emotion) {
     switch (emotion) {
       case 'happy': return 'Счастливый';
       case 'neutral': return 'Нейтральный';
@@ -135,7 +140,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Виджет для отображения фото или заметки
   Widget _buildPhotoNoteItem(MoodEntry entry, int index) {
     return GestureDetector(
       onTap: () {
@@ -305,12 +309,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('PhotoMood'),
-        automaticallyImplyLeading: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context);
+          },
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart),
             onPressed: () {
               Navigator.pushNamed(context, '/statistics');
+            },
+          ),
+          // Добавляем иконку ответов
+          IconButton(
+            icon: const Icon(Icons.question_answer),
+            onPressed: () {
+              Navigator.pushNamed(context, '/answers');
             },
           ),
           IconButton(
@@ -321,14 +337,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
+      body: RefreshIndicator(
+        onRefresh: _loadEntries,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
                 children: [
                   // Календарь с фиксированной высотой
                   SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.55, // 55% экрана
+                    height: MediaQuery.of(context).size.height * 0.55,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                       child: TableCalendar(
@@ -344,8 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             _focusedDay = focusedDay;
                           });
                           
-                          final entry = await DatabaseService()
-                            .getEntryForDate(selectedDay);
+                          final entry = await DatabaseService().getEntryForDate(selectedDay);
                             
                           if (entry != null && mounted) {
                             Navigator.pushNamed(
@@ -382,7 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           markersMaxCount: 1,
                         ),
                         headerStyle: const HeaderStyle(
-                          formatButtonVisible: false, // Убираем кнопку формата
+                          formatButtonVisible: false,
                           titleCentered: true,
                           titleTextStyle: TextStyle(
                             fontSize: 16,
@@ -443,7 +459,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         if (_recentPhotoEntries.isNotEmpty)
                           TextButton(
-                            onPressed: () {},
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => _AllPhotosNotesScreen(entries: _recentPhotoEntries),
+                                ),
+                              );
+                            },
                             child: const Text(
                               'Все',
                               style: TextStyle(fontSize: 12),
@@ -458,7 +481,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   // Фото и заметки
                   if (_recentPhotoEntries.isNotEmpty)
                     SizedBox(
-                      height: 160, // Фиксированная высота для горизонтального списка
+                      height: 160,
                       child: ListView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         scrollDirection: Axis.horizontal,
@@ -525,10 +548,201 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   
-                  const SizedBox(height: 20), // Отступ снизу
+                  const SizedBox(height: 20),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _AllPhotosNotesScreen extends StatelessWidget {
+  final List<MoodEntry> entries;
+
+  const _AllPhotosNotesScreen({required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Все фото и заметки'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: entries.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.photo_library,
+                    size: 80,
+                    color: Colors.grey[300],
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Пока нет фото и заметок',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : GridView.builder(
+              padding: const EdgeInsets.all(16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 0.8,
+              ),
+              itemCount: entries.length,
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                return _buildPhotoNoteItem(entry, context);
+              },
+            ),
+    );
+  }
+
+  Widget _buildPhotoNoteItem(MoodEntry entry, BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(
+          context,
+          '/day',
+          arguments: {'entry': entry},
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Дата и эмоция
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _CalendarScreenState._getEmotionColor(entry.emotion).withOpacity(0.1),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${entry.date.day}.${entry.date.month}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _CalendarScreenState._getEmotionColor(entry.emotion).withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _CalendarScreenState._getEmoji(entry.emotion),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
                 ],
               ),
             ),
+            
+            // Изображение
+            if (entry.imagePath.isNotEmpty)
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                  ),
+                  child: FutureBuilder<Uint8List?>(
+                    future: kIsWeb 
+                        ? DatabaseService().loadImageBytes(entry.imagePath)
+                        : null,
+                    builder: (context, snapshot) {
+                      if (kIsWeb) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return Center(
+                            child: CircularProgressIndicator(
+                              color: _CalendarScreenState._getEmotionColor(entry.emotion),
+                            ),
+                          );
+                        }
+                        if (snapshot.hasData && snapshot.data != null) {
+                          return Image.memory(
+                            snapshot.data!,
+                            fit: BoxFit.cover,
+                          );
+                        } else {
+                          return Container(
+                            color: _CalendarScreenState._getEmotionColor(entry.emotion).withOpacity(0.2),
+                            child: Center(
+                              child: Text(
+                                _CalendarScreenState._getEmoji(entry.emotion),
+                                style: const TextStyle(fontSize: 30),
+                              ),
+                            ),
+                          );
+                        }
+                      } else {
+                        return Image.file(
+                          File(entry.imagePath),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: _CalendarScreenState._getEmotionColor(entry.emotion).withOpacity(0.2),
+                              child: Center(
+                                child: Text(
+                                  _CalendarScreenState._getEmoji(entry.emotion),
+                                  style: const TextStyle(fontSize: 30),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ),
+            
+            // Заметка
+            if (entry.note?.isNotEmpty ?? false)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  entry.note!,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

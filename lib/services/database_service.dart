@@ -38,7 +38,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -51,7 +51,9 @@ class DatabaseService {
         date TEXT UNIQUE,
         imagePath TEXT,
         emotion TEXT,
-        note TEXT
+        note TEXT,
+        location TEXT, 
+        weather TEXT    
       )
     ''');
 
@@ -60,12 +62,20 @@ class DatabaseService {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_date ON mood_entries(date)');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_emotion ON mood_entries(emotion)');
+    if (oldVersion < 3) {
+      try {
+        print('[Database] Обновляем базу с версии $oldVersion до $newVersion');
+        
+        // Ключевой момент: добавляем колонки
+        await db.execute('ALTER TABLE mood_entries ADD COLUMN location TEXT');
+        await db.execute('ALTER TABLE mood_entries ADD COLUMN weather TEXT');
+        
+        print('[Database] Добавлены колонки location и weather');
+      } catch (e) {
+        print('[Database] Ошибка обновления: $e');
+      }
     }
   }
-
   // ============= CRUD ОПЕРАЦИИ =============
 
   Future<int> insertEntry(MoodEntry entry) async {

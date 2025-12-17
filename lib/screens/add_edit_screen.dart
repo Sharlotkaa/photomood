@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/mood_entry.dart';
 import '../services/database_service.dart';
+import '../services/location_weather_service.dart';
 
 class AddEditScreen extends StatefulWidget {
   final dynamic arguments;
@@ -42,12 +44,6 @@ class _AddEditScreenState extends State<AddEditScreen> {
       _existingEntry = args['entry'];
       _selectedEmotion = _existingEntry?.emotion ?? 'happy';
       _noteController.text = _existingEntry?.note ?? '';
-      
-      // Загружаем существующее изображение
-      if (_existingEntry?.imagePath != null && _isEditMode) {
-        // Для режима редактирования показываем, что изображение уже есть
-        // На практике нужно загрузить его из базы данных
-      }
     } else if (widget.arguments is DateTime) {
       _selectedDate = widget.arguments as DateTime;
     } else {
@@ -61,25 +57,29 @@ class _AddEditScreenState extends State<AddEditScreen> {
       if (pickedFile != null) {
         if (kIsWeb) {
           // На вебе получаем bytes
-          _imageBytes = await pickedFile.readAsBytes();
-          _image = null;
+          final bytes = await pickedFile.readAsBytes();
+          setState(() {
+            _imageBytes = bytes;
+            _image = null;
+          });
         } else {
           // На мобильных/десктоп
-          _image = File(pickedFile.path);
-          _imageBytes = null;
+          setState(() {
+            _image = File(pickedFile.path);
+            _imageBytes = null;
+          });
         }
-        
-        setState(() {});
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
     }
   }
-
-  Future<void> _saveEntry() async {
-    // Проверяем, есть ли новое изображение
+ Future<void> _saveEntry() async {
+  // Проверяем, есть ли новое изображение
     final hasNewImage = _image != null || _imageBytes != null;
     
     if (!_isEditMode && !hasNewImage) {
@@ -105,12 +105,40 @@ class _AddEditScreenState extends State<AddEditScreen> {
       imagePath = _existingEntry!.imagePath;
     }
 
+    // ==== ВСТАВЬТЕ ЭТОТ БЛОК ЗДЕСЬ (НАЧАЛО) ====
+    // Получаем местоположение и погоду
+    String? location;
+    String? weather;
+    
+    try {
+      final locationData = await LocationWeatherService.getCurrentLocation();
+      if (locationData.containsKey('location') && !locationData.containsKey('error')) {
+        location = locationData['location'];
+        
+        // Получаем погоду если есть координаты
+        if (locationData.containsKey('lat') && locationData.containsKey('lon')) {
+          final lat = double.parse(locationData['lat']!);
+          final lon = double.parse(locationData['lon']!);
+          weather = await LocationWeatherService.getWeather(lat, lon);
+        }
+      }
+    } catch (e) {
+      print('Ошибка получения геолокации: $e');
+    }
+    // ==== ВСТАВЬТЕ ЭТОТ БЛОК ЗДЕСЬ (КОНЕЦ) ====
+
+    print('📍 Сохраняем локацию: $location');
+    print('☁️ Сохраняем погоду: $weather');
+
+    // Создаем запись
     final entry = MoodEntry(
       id: _existingEntry?.id,
       date: _selectedDate ?? _existingEntry?.date ?? DateTime.now(),
       imagePath: imagePath ?? '',
       emotion: _selectedEmotion,
       note: _noteController.text.trim(),
+      location: location,  // ← передаем местоположение
+      weather: weather,    // ← передаем погоду
     );
 
     try {
@@ -129,6 +157,7 @@ class _AddEditScreenState extends State<AddEditScreen> {
       );
     }
   }
+
 
   // Метод для сохранения изображения на Web
   Future<void> _saveImageForWeb(String key, Uint8List bytes) async {

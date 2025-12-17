@@ -1,35 +1,73 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_feed_screen.dart';
+import 'screens/calendar_screen.dart';
 import 'screens/day_screen.dart';
 import 'screens/add_edit_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/answers_screen.dart';
 import 'services/auth_service.dart';
-import 'models/mood_entry.dart';
+import 'services/theme_service.dart';
+import 'services/notification_service.dart';
+import 'screens/onboarding_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Инициализируем локализацию для русского языка
   await initializeDateFormatting('ru_RU', null);
   
-  runApp(const PhotoMoodApp());
-}
+  print('[Main] Инициализируем уведомления...');
+  
+  // 1. Инициализируем сервис уведомлений
+  final notificationService = NotificationService();
+  await notificationService.init();
+  
+  // 2. Даем время на инициализацию
+  await Future.delayed(const Duration(milliseconds: 500));
+  
+  // 3. Запрашиваем разрешения (еще не планируем)
+  await notificationService.requestPermissions();
+  
+  // 4. Даем время на обработку разрешений
+  await Future.delayed(const Duration(milliseconds: 300));
+  
+  // 5. Планируем уведомления
+  await notificationService.scheduleDailyReminders();
+  // После scheduleDailyReminders();
+  await Future.delayed(const Duration(seconds: 3));
+  await notificationService.showTestNotification();
 
+  
+  print('[Main] Уведомления инициализированы');
+  
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ThemeService(),
+      child: const PhotoMoodApp(),
+    ),
+  );
+}
 class PhotoMoodApp extends StatelessWidget {
   const PhotoMoodApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final themeService = Provider.of<ThemeService>(context);
+    
     return MaterialApp(
       title: 'PhotoMood',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
+      theme: ThemeData.light().copyWith(
+        primaryColor: themeService.accentColor,
+        colorScheme: ColorScheme.light(
+          primary: themeService.accentColor,
+          secondary: themeService.accentColor.withOpacity(0.8),
+        ),
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
@@ -37,6 +75,20 @@ class PhotoMoodApp extends StatelessWidget {
           elevation: 1,
         ),
       ),
+      darkTheme: ThemeData.dark().copyWith(
+        primaryColor: themeService.accentColor,
+        colorScheme: ColorScheme.dark(
+          primary: themeService.accentColor,
+          secondary: themeService.accentColor.withOpacity(0.8),
+        ),
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.black87,
+          foregroundColor: Colors.white,
+          elevation: 1,
+        ),
+      ),
+      themeMode: themeService.themeMode,
       locale: const Locale('ru', 'RU'),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -44,29 +96,41 @@ class PhotoMoodApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('ru', 'RU'), // Русский
-        Locale('en', 'US'), // Английский (запасной вариант)
+        Locale('ru', 'RU'),
+        Locale('en', 'US'),
       ],
-      initialRoute: '/',
+      home: FutureBuilder<bool>(
+        future: _checkFirstLaunch(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SplashScreen();
+          }
+          
+          return snapshot.data == true 
+              ? const OnboardingScreen()
+              : FutureBuilder<bool>(
+                  future: AuthService().isLoggedIn(),
+                  builder: (context, authSnapshot) {
+                    if (authSnapshot.connectionState == ConnectionState.waiting) {
+                      return const SplashScreen();
+                    }
+                    return authSnapshot.data == true 
+                        ? const MainFeedScreen()
+                        : const WelcomeScreen();
+                  },
+                );
+        },
+      ),
+      
       routes: {
-        '/': (context) => FutureBuilder<bool>(
-              future: AuthService().isLoggedIn(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SplashScreen();
-                }
-                return snapshot.data == true 
-                    ? const HomeScreen() 
-                    : const WelcomeScreen();
-              },
-            ),
         '/welcome': (context) => const WelcomeScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
-        '/home': (context) => const HomeScreen(),
+        '/feed': (context) => const MainFeedScreen(),
+        '/calendar': (context) => const CalendarScreen(),
         '/day': (context) {
-          final entry = ModalRoute.of(context)!.settings.arguments as MoodEntry;
-          return DayScreen(entry: entry);
+          final args = ModalRoute.of(context)!.settings.arguments as Map;
+          return DayScreen(entry: args['entry']);
         },
         '/add': (context) {
           final args = ModalRoute.of(context)!.settings.arguments;
@@ -74,11 +138,21 @@ class PhotoMoodApp extends StatelessWidget {
         },
         '/statistics': (context) => const StatisticsScreen(),
         '/profile': (context) => const ProfileScreen(),
+        '/answers': (context) => const AnswersScreen(),
+        '/home': (context) => const MainFeedScreen(),
       },
     );
+
+    
   }
+  Future<bool> _checkFirstLaunch() async {
+  final prefs = await SharedPreferences.getInstance();
+  final isFirstLaunch = prefs.getBool('onboarding_completed') ?? false;
+  return !isFirstLaunch; // true = показываем onboarding
+}
 }
 
+// Добавьте этот класс SplashScreen в конец файла (перед закрывающей фигурной скобкой файла)
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 

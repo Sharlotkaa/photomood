@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shimmer/shimmer.dart';
 import '../services/database_service.dart';
+import '../models/mood_entry.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -11,15 +12,19 @@ class StatisticsScreen extends StatefulWidget {
   _StatisticsScreenState createState() => _StatisticsScreenState();
 }
 
-class _StatisticsScreenState extends State<StatisticsScreen> {
+class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   Map<String, int> _monthStats = {};
   Map<String, int> _allStats = {};
   Map<String, int> _weeklyStats = {};
   int _totalEntries = 0;
   String _currentMonth = '';
   bool _isLoading = true;
+  bool _isCalculating = false;
+  DateTime? _lastCalculationTime;
 
-  // Цвета для эмоций
   static const Map<String, Color> _emotionColors = {
     'happy': Color(0xFF4CAF50),
     'excited': Color(0xFFFFC107),
@@ -32,46 +37,67 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   void initState() {
     super.initState();
     
-    // Безопасная инициализация формата даты
     try {
       _currentMonth = DateFormat('MMMM yyyy', 'ru_RU').format(DateTime.now());
     } catch (e) {
-      // Если русская локаль не инициализирована, используем английскую
       _currentMonth = DateFormat('MMMM yyyy').format(DateTime.now());
     }
     
-    _loadStatistics();
-  }
+    // Простая версия без WidgetsFlutterBinding
+    Future.delayed(Duration.zero, () {
+      _loadStatistics();
+    });
+}
 
-  Future<void> _loadStatistics() async {
-    setState(() => _isLoading = true);
-    
+  Future<void> _loadStatistics({bool forceRefresh = false}) async {
     final now = DateTime.now();
     
-    // Используем новые методы DatabaseService
-    final allEntries = await DatabaseService().getAllEntries();
+    if (_lastCalculationTime != null && 
+        !forceRefresh && 
+        now.difference(_lastCalculationTime!) < const Duration(minutes: 5)) {
+      return;
+    }
     
-    // Статистика за текущий месяц
-    final monthStats = await DatabaseService().getEmotionStats(
-      startDate: DateTime(now.year, now.month, 1),
-      endDate: DateTime(now.year, now.month + 1, 0),
-    );
+    if (_isCalculating) return;
     
-    // Общая статистика
-    final allStats = await DatabaseService().getEmotionStats();
-    
-    // Статистика по дням недели за последние 30 дней
-    final weeklyStats = await DatabaseService().getWeeklyStats();
-
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    setState(() {
-      _monthStats = monthStats;
-      _allStats = allStats;
-      _weeklyStats = weeklyStats;
-      _totalEntries = allEntries.length;
-      _isLoading = false;
-    });
+    try {
+      setState(() {
+        _isLoading = true;
+        _isCalculating = true;
+      });
+      
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      final futures = await Future.wait([
+        DatabaseService().getAllEntries(),
+        DatabaseService().getEmotionStats(
+          startDate: DateTime(now.year, now.month, 1),
+          endDate: DateTime(now.year, now.month + 1, 0),
+        ),
+        DatabaseService().getEmotionStats(),
+        DatabaseService().getWeeklyStats(),
+      ]);
+      
+      final allEntries = futures[0] as List<MoodEntry>;
+      final monthStats = futures[1] as Map<String, int>;
+      final allStats = futures[2] as Map<String, int>;
+      final weeklyStats = futures[3] as Map<String, int>;
+      
+      setState(() {
+        _monthStats = monthStats;
+        _allStats = allStats;
+        _weeklyStats = weeklyStats;
+        _totalEntries = allEntries.length;
+        _isLoading = false;
+        _lastCalculationTime = now;
+      });
+      
+    } catch (e) {
+      print('Ошибка загрузки статистики: $e');
+      setState(() => _isLoading = false);
+    } finally {
+      setState(() => _isCalculating = false);
+    }
   }
 
   String _getEmoji(String emotion) {
@@ -96,78 +122,46 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     }
   }
 
-  // Метод для получения отсортированных дней недели
-  List<String> _getSortedWeekDays() {
-    final days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
-    final today = DateTime.now().weekday;
-    
-    // Сортируем дни недели, начиная с понедельника
-    final sortedDays = <String>[];
-    for (int i = 1; i <= 7; i++) {
-      final index = (today + i - 2) % 7;
-      sortedDays.add(days[index]);
-    }
-    
-    return sortedDays;
-  }
-
-  // ИСПРАВЛЕННАЯ ВЕРСИЯ: Карточка статистики с фиксированной высотой
   Widget _buildStatCard(String title, IconData icon, Color color, String value, String subtitle) {
     return Container(
-      constraints: const BoxConstraints(
-        minHeight: 130, // Фиксированная минимальная высота
-        maxHeight: 150, // Максимальная высота
-      ),
-      margin: const EdgeInsets.symmetric(vertical: 4), // Уменьшен отступ
+      constraints: const BoxConstraints(minHeight: 130, maxHeight: 150),
+      margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            color.withOpacity(0.15),
-            color.withOpacity(0.05),
-        ]),
-        borderRadius: BorderRadius.circular(16), // Уменьшен радиус
+          colors: [color.withOpacity(0.15), color.withOpacity(0.05)],
+        ),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16), // Уменьшен padding
+        padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10), // Уменьшен padding
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: color, size: 24), // Уменьшен размер иконки
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
-              ],
-            ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+            ]),
             const SizedBox(height: 12),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
                 value,
-                style: TextStyle(
-                  fontSize: 24, // Уменьшен размер шрифта
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
               ),
             ),
             const SizedBox(height: 4),
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 12, // Уменьшен размер шрифта
-                fontWeight: FontWeight.w500,
-                color: Colors.grey,
-              ),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.grey),
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -176,10 +170,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: const TextStyle(
-                  fontSize: 10, // Уменьшен размер шрифта
-                  color: Colors.grey,
-                ),
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -244,19 +235,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ),
             );
           }).toList(),
-          pieTouchData: PieTouchData(
-            touchCallback: (FlTouchEvent event, pieTouchResponse) {},
-          ),
+          pieTouchData: PieTouchData(touchCallback: (FlTouchEvent event, pieTouchResponse) {}),
         ),
       ),
     );
   }
 
   Widget _buildBarChart() {
-    final sortedWeekDays = _getSortedWeekDays();
+    final days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
     final shortDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
     
-    // Находим максимальное значение для масштабирования
     final maxValue = _weeklyStats.values.isNotEmpty 
       ? _weeklyStats.values.reduce((a, b) => a > b ? a : b)
       : 0;
@@ -284,19 +272,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             touchTooltipData: BarTouchTooltipData(
               tooltipBgColor: Colors.black87,
               getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                final dayName = sortedWeekDays[group.x.toInt()];
+                final dayName = days[group.x.toInt()];
                 return BarTooltipItem(
                   '$dayName\n',
-                  const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   children: [
                     TextSpan(
                       text: '${rod.toY.toInt()} записей',
-                      style: const TextStyle(
-                        color: Colors.white,
-                      ),
+                      style: const TextStyle(color: Colors.white),
                     ),
                   ],
                 );
@@ -328,29 +311,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   if (value == meta.min || value == meta.max) {
                     return const SizedBox.shrink();
                   }
-                  return Text(
-                    value.toInt().toString(),
-                    style: const TextStyle(fontSize: 11),
-                  );
+                  return Text(value.toInt().toString(), style: const TextStyle(fontSize: 11));
                 },
               ),
             ),
-            rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           ),
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
-            getDrawingHorizontalLine: (value) {
-              return FlLine(
-                color: Colors.grey[200],
-                strokeWidth: 1,
-              );
-            },
+            getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey[200], strokeWidth: 1),
           ),
           borderData: FlBorderData(
             show: true,
@@ -360,7 +331,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             ),
           ),
           barGroups: List.generate(7, (index) {
-            final dayName = sortedWeekDays[index];
+            final dayName = days[index];
             final count = _weeklyStats[dayName] ?? 0;
             return BarChartGroupData(
               x: index,
@@ -413,10 +384,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [
-                color.withOpacity(0.1),
-                color.withOpacity(0.05),
-              ],
+              colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
             ),
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
@@ -435,31 +403,21 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 color: color.withOpacity(0.2),
                 shape: BoxShape.circle,
               ),
-              child: Text(
-                _getEmoji(entry.key),
-                style: const TextStyle(fontSize: 20),
-              ),
+              child: Text(_getEmoji(entry.key), style: const TextStyle(fontSize: 20)),
             ),
             title: Row(
               children: [
                 Expanded(
                   child: Text(
                     _getEmotionName(entry.key),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Text(
                   '${entry.value}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
                 ),
               ],
             ),
@@ -483,11 +441,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     const SizedBox(width: 8),
                     Text(
                       '${percentage.toStringAsFixed(1)}%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[700],
-                      ),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700]),
                     ),
                   ],
                 ),
@@ -507,7 +461,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Карточка приветствия
             Container(
               height: 80,
               margin: const EdgeInsets.only(bottom: 16),
@@ -517,7 +470,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               ),
             ),
             
-            // Сетка с метриками
             GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -536,8 +488,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             ),
             
             const SizedBox(height: 20),
-            
-            // Круговая диаграмма
             Container(
               height: 200,
               decoration: BoxDecoration(
@@ -547,8 +497,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             ),
             
             const SizedBox(height: 20),
-            
-            // График активности
             Container(
               height: 200,
               decoration: BoxDecoration(
@@ -562,16 +510,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  // Метод для получения самой частой эмоции с эмодзи
   String _getMostFrequentEmoji() {
     if (_allStats.isEmpty) return '-';
-    
     final mostFrequent = _allStats.entries.reduce((a, b) => a.value > b.value ? a : b);
     return _getEmoji(mostFrequent.key);
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+    
     final totalMonth = _monthStats.values.fold(0, (sum, count) => sum + count);
     
     return Scaffold(
@@ -583,7 +531,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         foregroundColor: Theme.of(context).colorScheme.primary,
       ),
       body: RefreshIndicator(
-        onRefresh: _loadStatistics,
+        onRefresh: () => _loadStatistics(forceRefresh: true),
         child: _isLoading
           ? _buildShimmerLoading()
           : SingleChildScrollView(
@@ -591,7 +539,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Приветствие
                   Container(
                     margin: const EdgeInsets.only(bottom: 16),
                     padding: const EdgeInsets.all(16),
@@ -629,10 +576,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                               const SizedBox(height: 4),
                               Text(
                                 'На основе ваших записей',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                               ),
                             ],
                           ),
@@ -641,7 +585,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     ),
                   ),
 
-                  // Ключевые метрики в сетке
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -650,40 +593,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     mainAxisSpacing: 8,
                     childAspectRatio: 1.1,
                     children: [
-                      _buildStatCard(
-                        'Всего записей',
-                        Icons.book,
-                        Colors.blue,
-                        '$_totalEntries',
-                        '',
-                      ),
-                      _buildStatCard(
-                        'За месяц',
-                        Icons.calendar_month,
-                        Colors.green,
-                        '$totalMonth',
-                        _currentMonth,
-                      ),
-                      _buildStatCard(
-                        'Разных эмоций',
-                        Icons.emoji_emotions,
-                        Colors.orange,
-                        '${_allStats.length}',
-                        '',
-                      ),
-                      _buildStatCard(
-                        'Самая частая',
-                        Icons.star,
-                        Colors.purple,
-                        _getMostFrequentEmoji(),
-                        '',
-                      ),
+                      _buildStatCard('Всего записей', Icons.book, Colors.blue, '$_totalEntries', ''),
+                      _buildStatCard('За месяц', Icons.calendar_month, Colors.green, '$totalMonth', _currentMonth),
+                      _buildStatCard('Разных эмоций', Icons.emoji_emotions, Colors.orange, '${_allStats.length}', ''),
+                      _buildStatCard('Самая частая', Icons.star, Colors.purple, _getMostFrequentEmoji(), ''),
                     ],
                   ),
 
                   const SizedBox(height: 20),
-
-                  // Круговая диаграмма за месяц
                   Text(
                     'Распределение за месяц',
                     style: TextStyle(
@@ -696,8 +613,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   _buildPieChart(_monthStats, totalMonth),
 
                   const SizedBox(height: 20),
-
-                  // График активности
                   Text(
                     'Активность по дням недели',
                     style: TextStyle(
@@ -710,8 +625,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   _buildBarChart(),
 
                   const SizedBox(height: 20),
-
-                  // Статистика за месяц
                   Text(
                     'Детали за месяц',
                     style: TextStyle(
@@ -738,8 +651,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   ),
 
                   const SizedBox(height: 20),
-
-                  // Общая статистика
                   Text(
                     'Общая статистика',
                     style: TextStyle(
@@ -765,13 +676,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     child: _buildEmotionList(_allStats, _totalEntries),
                   ),
 
-                  const SizedBox(height: 20), // Дополнительный отступ внизу
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _loadStatistics,
+        onPressed: () => _loadStatistics(forceRefresh: true),
         backgroundColor: Theme.of(context).colorScheme.primary,
         mini: true,
         child: const Icon(Icons.refresh),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-// Добавьте этот импорт в начало файла
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,7 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (success) {
-        Navigator.pushReplacementNamed(context, '/home');
+        Navigator.pushReplacementNamed(context, '/feed'); // ИЗМЕНЕНО
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Неверный email или пароль')),
