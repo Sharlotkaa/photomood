@@ -21,7 +21,7 @@ dependencies:
   # State Management
   provider: ^6.1.2
   # UI & Navigation
-  table_calendar: ^3.0.9
+  table_calendar: ^3.2.0
   cupertino_icons: ^1.0.6
   fl_chart: ^0.66.0
   shimmer: ^3.0.0

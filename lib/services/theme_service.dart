@@ -7,7 +7,15 @@ class ThemeService extends ChangeNotifier {
 
   ThemeMode get themeMode => _themeMode;
   Color get accentColor => _accentColor;
-
+  bool get isDarkMode {
+      // You can customize this logic based on your needs
+      if (_themeMode == ThemeMode.system) {
+        // If using system theme, you might need to check the platform brightness
+        // For now, returning false as default
+        return false;
+      }
+      return _themeMode == ThemeMode.dark;
+    }
   ThemeService() {
     _loadPreferences();
   }

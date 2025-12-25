@@ -6,6 +6,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mood_entry.dart';
+import 'package:intl/intl.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -76,6 +77,36 @@ class DatabaseService {
       }
     }
   }
+  // В database_service.dart добавьте:
+Future<Map<String, int>> getYearlyStats() async {
+  final entries = await getAllEntries();
+  final stats = <String, int>{};
+  
+  for (final entry in entries) {
+    final monthKey = DateFormat('MMMM yyyy', 'ru_RU').format(entry.date);
+    stats[monthKey] = (stats[monthKey] ?? 0) + 1;
+  }
+  
+  return stats;
+}
+
+Future<Map<String, int>> getWeeklyStats() async {
+  final entries = await getAllEntries();
+  final daysOfWeek = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+  final stats = <String, int>{};
+  
+  for (final day in daysOfWeek) {
+    stats[day] = 0;
+  }
+  
+  for (final entry in entries) {
+    final dayIndex = (entry.date.weekday + 6) % 7; // Преобразование к Пн=0, Вс=6
+    final dayName = daysOfWeek[dayIndex];
+    stats[dayName] = (stats[dayName] ?? 0) + 1;
+  }
+  
+  return stats;
+}
   // ============= CRUD ОПЕРАЦИИ =============
 
   Future<int> insertEntry(MoodEntry entry) async {
@@ -370,30 +401,6 @@ class DatabaseService {
     );
 
     return List.generate(maps.length, (i) => MoodEntry.fromMap(maps[i]));
-  }
-
-  Future<Map<String, int>> getWeeklyStats() async {
-    if (kIsWeb) {
-      return await _getWeeklyStatsWeb();
-    } else {
-      return await _getWeeklyStatsMobile();
-    }
-  }
-
-  Future<Map<String, int>> _getWeeklyStatsWeb() async {
-    final entries = await _getAllEntriesWeb();
-    final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
-    final recentEntries = entries.where((entry) => entry.date.isAfter(thirtyDaysAgo)).toList();
-
-    final Map<String, int> result = {};
-    final dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-
-    for (var entry in recentEntries) {
-      final dayName = dayNames[entry.date.weekday % 7];
-      result[dayName] = (result[dayName] ?? 0) + 1;
-    }
-
-    return result;
   }
 
   Future<Map<String, int>> _getWeeklyStatsMobile() async {

@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:provider/provider.dart';
 import '../services/database_service.dart';
 import '../models/mood_entry.dart';
+import '../services/theme_service.dart';
+
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -19,8 +22,24 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
   Map<String, int> _monthStats = {};
   Map<String, int> _allStats = {};
   Map<String, int> _weeklyStats = {};
+  Map<String, int> _yearlyStats = {};
+  Map<String, int> _photoStats = {};
+  Map<String, int> _noteStats = {};
+  List<MoodEntry> _allEntries = [];
+  
   int _totalEntries = 0;
+  int _photoEntriesCount = 0;
+  int _noteEntriesCount = 0;
+  int _entriesWithBoth = 0;
+  double _averageEntriesPerDay = 0;
   String _currentMonth = '';
+  DateTime? _firstEntryDate;
+  DateTime? _lastEntryDate;
+  String _mostActiveDay = '';
+  String _mostActiveMonth = '';
+  String _longestStreak = '0';
+  String _currentStreak = '0';
+  
   bool _isLoading = true;
   bool _isCalculating = false;
   DateTime? _lastCalculationTime;
@@ -43,11 +62,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
       _currentMonth = DateFormat('MMMM yyyy').format(DateTime.now());
     }
     
-    // Простая версия без WidgetsFlutterBinding
     Future.delayed(Duration.zero, () {
       _loadStatistics();
     });
-}
+  }
 
   Future<void> _loadStatistics({bool forceRefresh = false}) async {
     final now = DateTime.now();
@@ -68,26 +86,72 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
       
       await Future.delayed(const Duration(milliseconds: 100));
       
+      final allEntries = await DatabaseService().getAllEntries();
+      _allEntries = allEntries;
+      
+      // Собираем расширенную статистику
       final futures = await Future.wait([
-        DatabaseService().getAllEntries(),
         DatabaseService().getEmotionStats(
           startDate: DateTime(now.year, now.month, 1),
           endDate: DateTime(now.year, now.month + 1, 0),
         ),
         DatabaseService().getEmotionStats(),
         DatabaseService().getWeeklyStats(),
+        DatabaseService().getYearlyStats(),
       ]);
       
-      final allEntries = futures[0] as List<MoodEntry>;
-      final monthStats = futures[1] as Map<String, int>;
-      final allStats = futures[2] as Map<String, int>;
-      final weeklyStats = futures[3] as Map<String, int>;
+      final monthStats = futures[0] as Map<String, int>;
+      final allStats = futures[1] as Map<String, int>;
+      final weeklyStats = futures[2] as Map<String, int>;
+      final yearlyStats = futures[3] as Map<String, int>;
+      
+      // Расширенная статистика
+      final photoEntries = allEntries.where((e) => e.imagePath.isNotEmpty).length;
+      final noteEntries = allEntries.where((e) => (e.note?.isNotEmpty ?? false)).length;
+      final entriesWithBoth = allEntries.where((e) => 
+          e.imagePath.isNotEmpty && (e.note?.isNotEmpty ?? false)).length;
+      
+      // Даты первой и последней записи
+      final dates = allEntries.map((e) => e.date).toList();
+      final firstDate = dates.isNotEmpty ? dates.reduce((a, b) => a.isBefore(b) ? a : b) : null;
+      final lastDate = dates.isNotEmpty ? dates.reduce((a, b) => a.isAfter(b) ? a : b) : null;
+      
+      // Среднее количество записей в день
+      double avgPerDay = 0;
+      if (firstDate != null && allEntries.isNotEmpty) {
+        final daysDiff = lastDate!.difference(firstDate).inDays + 1;
+        avgPerDay = daysDiff > 0 ? allEntries.length / daysDiff : allEntries.length.toDouble();
+      }
+      
+      // Самая активная неделя и месяц
+      final mostActiveDayEntry = weeklyStats.entries.isNotEmpty 
+          ? weeklyStats.entries.reduce((a, b) => a.value > b.value ? a : b)
+          : null;
+      final mostActiveMonthEntry = yearlyStats.entries.isNotEmpty
+          ? yearlyStats.entries.reduce((a, b) => a.value > b.value ? a : b)
+          : null;
+      
+      // Серия записей (streak)
+      final streakInfo = _calculateStreaks(allEntries);
       
       setState(() {
         _monthStats = monthStats;
         _allStats = allStats;
         _weeklyStats = weeklyStats;
+        _yearlyStats = yearlyStats;
+        
         _totalEntries = allEntries.length;
+        _photoEntriesCount = photoEntries;
+        _noteEntriesCount = noteEntries;
+        _entriesWithBoth = entriesWithBoth;
+        _averageEntriesPerDay = avgPerDay;
+        _firstEntryDate = firstDate;
+        _lastEntryDate = lastDate;
+        _mostActiveDay = mostActiveDayEntry?.key ?? '-';
+        _mostActiveMonth = mostActiveMonthEntry?.key ?? '-';
+        _longestStreak = streakInfo['longest'] ?? '0';
+        _currentStreak = streakInfo['current'] ?? '0';
+        
         _isLoading = false;
         _lastCalculationTime = now;
       });
@@ -98,6 +162,76 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
     } finally {
       setState(() => _isCalculating = false);
     }
+  }
+
+  Map<String, String> _calculateStreaks(List<MoodEntry> entries) {
+    if (entries.isEmpty) return {'longest': '0', 'current': '0'};
+    
+    // Сортируем записи по дате
+    final sortedEntries = entries.toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    
+    // Уникальные даты
+    final uniqueDates = sortedEntries
+        .map((e) => DateTime(e.date.year, e.date.month, e.date.day))
+        .toSet()
+        .toList()
+      ..sort();
+    
+    int longestStreak = 0;
+    int currentStreak = 0;
+    int tempStreak = 1;
+    
+    // Начинаем с первой даты
+    DateTime? lastDate = uniqueDates.first;
+    
+    for (int i = 1; i < uniqueDates.length; i++) {
+      final currentDate = uniqueDates[i];
+      final difference = currentDate.difference(lastDate!).inDays;
+      
+      if (difference == 1) {
+        // Последовательные дни
+        tempStreak++;
+      } else {
+        // Разрыв в последовательности
+        if (tempStreak > longestStreak) {
+          longestStreak = tempStreak;
+        }
+        tempStreak = 1;
+      }
+      
+      lastDate = currentDate;
+    }
+    
+    // Проверяем последнюю последовательность
+    if (tempStreak > longestStreak) {
+      longestStreak = tempStreak;
+    }
+    
+    // Текущая серия (до сегодняшнего дня)
+    final today = DateTime.now();
+    final yesterday = today.subtract(const Duration(days: 1));
+    
+    if (uniqueDates.isNotEmpty) {
+      final lastEntryDate = uniqueDates.last;
+      final diff = today.difference(lastEntryDate).inDays;
+      
+      if (diff == 0) {
+        // Запись сегодня
+        currentStreak = tempStreak;
+      } else if (diff == 1 && 
+          yesterday.year == lastEntryDate.year &&
+          yesterday.month == lastEntryDate.month &&
+          yesterday.day == lastEntryDate.day) {
+        // Запись была вчера
+        currentStreak = tempStreak;
+      }
+    }
+    
+    return {
+      'longest': longestStreak.toString(),
+      'current': currentStreak.toString(),
+    };
   }
 
   String _getEmoji(String emotion) {
@@ -122,7 +256,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
     }
   }
 
-  Widget _buildStatCard(String title, IconData icon, Color color, String value, String subtitle) {
+  Widget _buildAdvancedStatCard(String title, IconData icon, Color color, String value, String subtitle, [String? extraInfo]) {
     return Container(
       constraints: const BoxConstraints(minHeight: 130, maxHeight: 150),
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -139,18 +273,22 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  shape: BoxShape.circle,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 24),
                 ),
-                child: Icon(icon, color: color, size: 24),
-              ),
-            ]),
-            const SizedBox(height: 12),
+              ],
+            ),
+            const SizedBox(height: 8),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
@@ -176,8 +314,384 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
                 overflow: TextOverflow.ellipsis,
               ),
             ],
+            if (extraInfo != null && extraInfo.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                extraInfo,
+                style: TextStyle(fontSize: 9, color: color.withOpacity(0.7)),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStreakCard() {
+    final themeService = Provider.of<ThemeService>(context);
+    final isDarkMode = themeService.isDarkMode;
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDarkMode
+              ? [Colors.purple.withOpacity(0.3), Colors.purple.withOpacity(0.1)]
+              : [Colors.purple.withOpacity(0.15), Colors.purple.withOpacity(0.05)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.local_fire_department, color: Colors.orange, size: 30),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Текущая серия: $_currentStreak дней',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: isDarkMode ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Рекорд: $_longestStreak дней',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDarkMode ? Colors.grey[300] : Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_currentStreak != '0')
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.whatshot, color: Colors.orange, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    '🔥',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineInfo() {
+    if (_firstEntryDate == null || _lastEntryDate == null) {
+      return Container();
+    }
+    
+    final daysTotal = _lastEntryDate!.difference(_firstEntryDate!).inDays + 1;
+    final monthsTotal = (daysTotal / 30.44).toStringAsFixed(1);
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timeline, color: Colors.blue, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                'Хронология',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Начало',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    DateFormat('dd.MM.yyyy').format(_firstEntryDate!),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              Container(
+                height: 1,
+                width: 40,
+                color: Colors.grey[300],
+              ),
+              Column(
+                children: [
+                  Text(
+                    '$daysTotal дней',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '(${monthsTotal} мес.)',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+              Container(
+                height: 1,
+                width: 40,
+                color: Colors.grey[300],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Последняя',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  Text(
+                    DateFormat('dd.MM.yyyy').format(_lastEntryDate!),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContentTypeStats() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Типы записей',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildContentTypeItem('С фото', _photoEntriesCount, Icons.photo, Colors.blue),
+              const SizedBox(width: 16),
+              _buildContentTypeItem('С заметками', _noteEntriesCount, Icons.note, Colors.green),
+              const SizedBox(width: 16),
+              _buildContentTypeItem('Оба типа', _entriesWithBoth, Icons.photo_library, Colors.purple),
+            ],
+          ),
+          if (_totalEntries > 0) ...[
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: _photoEntriesCount / _totalEntries,
+              backgroundColor: Colors.grey[200],
+              color: Colors.blue,
+              minHeight: 6,
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${((_photoEntriesCount / _totalEntries) * 100).toStringAsFixed(0)}% с фото',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Text(
+                  '${((_noteEntriesCount / _totalEntries) * 100).toStringAsFixed(0)}% с заметками',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContentTypeItem(String title, int count, IconData icon, Color color) {
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActivityInsights() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Инсайты активности',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildInsightItem(
+                  'Среднее в день',
+                  '${_averageEntriesPerDay.toStringAsFixed(2)}',
+                  Icons.trending_up,
+                  _averageEntriesPerDay >= 0.5 ? Colors.green : Colors.orange,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildInsightItem(
+                  'Активный день',
+                  _mostActiveDay,
+                  Icons.calendar_today,
+                  Colors.blue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildInsightItem(
+                  'Активный месяц',
+                  _mostActiveMonth,
+                  Icons.date_range,
+                  Colors.purple,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildInsightItem(
+                  'Записей с фото',
+                  '${((_photoEntriesCount / (_totalEntries == 0 ? 1 : _totalEntries)) * 100).toStringAsFixed(0)}%',
+                  Icons.photo_camera,
+                  Colors.cyan,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInsightItem(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(fontSize: 12, color: color),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -235,7 +749,24 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
               ),
             );
           }).toList(),
-          pieTouchData: PieTouchData(touchCallback: (FlTouchEvent event, pieTouchResponse) {}),
+          pieTouchData: PieTouchData(
+            touchCallback: (FlTouchEvent event, pieTouchResponse) {
+              if (event is FlTapUpEvent && pieTouchResponse != null) {
+                final section = pieTouchResponse.touchedSection;
+                if (section != null) {
+                  final index = section.touchedSectionIndex;
+                  final emotion = stats.keys.elementAt(index);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '${_getEmotionName(emotion)}: ${stats[emotion]} записей (${((stats[emotion]! / total) * 100).toStringAsFixed(1)}%)',
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+          ),
         ),
       ),
     );
@@ -524,11 +1055,38 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Статистика настроения'),
+        title: const Text('Расширенная статистика'),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Colors.transparent,
         foregroundColor: Theme.of(context).colorScheme.primary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('О статистике'),
+                  content: const Text(
+                    'Здесь представлена расширенная статистика ваших настроений. '
+                    'Данные обновляются автоматически каждые 5 минут или при обновлении вручную.\n\n'
+                    '• Серия (streak) - последовательные дни с записями\n'
+                    '• Инсайты - полезные выводы из ваших данных\n'
+                    '• Хронология - период ведения дневника\n'
+                    '• Типы записей - фото, заметки или оба типа',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Закрыть'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () => _loadStatistics(forceRefresh: true),
@@ -539,52 +1097,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Theme.of(context).colorScheme.primary.withOpacity(0.2),
-                          Theme.of(context).colorScheme.primary.withOpacity(0.05),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.emoji_emotions,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 36,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Анализ настроения',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'На основе ваших записей',
-                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
+                  // Серия записей
+                  _buildStreakCard(),
+                  
+                  // Хронология
+                  _buildTimelineInfo(),
+                  
+                  // Основные карточки статистики
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -593,13 +1112,20 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
                     mainAxisSpacing: 8,
                     childAspectRatio: 1.1,
                     children: [
-                      _buildStatCard('Всего записей', Icons.book, Colors.blue, '$_totalEntries', ''),
-                      _buildStatCard('За месяц', Icons.calendar_month, Colors.green, '$totalMonth', _currentMonth),
-                      _buildStatCard('Разных эмоций', Icons.emoji_emotions, Colors.orange, '${_allStats.length}', ''),
-                      _buildStatCard('Самая частая', Icons.star, Colors.purple, _getMostFrequentEmoji(), ''),
+                      _buildAdvancedStatCard('Всего записей', Icons.book, Colors.blue, '$_totalEntries', '', ''),
+                      _buildAdvancedStatCard('За месяц', Icons.calendar_month, Colors.green, '$totalMonth', _currentMonth, ''),
+                      _buildAdvancedStatCard('С фото', Icons.photo, Colors.cyan, '$_photoEntriesCount', '', ''),
+                      _buildAdvancedStatCard('С заметками', Icons.note, Colors.orange, '$_noteEntriesCount', '', ''),
                     ],
                   ),
-
+                  
+                  // Инсайты активности
+                  _buildActivityInsights(),
+                  
+                  // Типы записей
+                  _buildContentTypeStats(),
+                  
+                  // Графики
                   const SizedBox(height: 20),
                   Text(
                     'Распределение за месяц',
@@ -611,7 +1137,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
                   ),
                   const SizedBox(height: 12),
                   _buildPieChart(_monthStats, totalMonth),
-
+                  
                   const SizedBox(height: 20),
                   Text(
                     'Активность по дням недели',
@@ -623,7 +1149,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
                   ),
                   const SizedBox(height: 12),
                   _buildBarChart(),
-
+                  
                   const SizedBox(height: 20),
                   Text(
                     'Детали за месяц',
@@ -649,7 +1175,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
                     ),
                     child: _buildEmotionList(_monthStats, totalMonth),
                   ),
-
+                  
                   const SizedBox(height: 20),
                   Text(
                     'Общая статистика',
@@ -675,7 +1201,27 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
                     ),
                     child: _buildEmotionList(_allStats, _totalEntries),
                   ),
-
+                  
+                  const SizedBox(height: 40),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.insights, size: 40, color: Colors.grey),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Продолжайте вести дневник,\nчтобы увидеть больше статистики!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 14, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
                   const SizedBox(height: 20),
                 ],
               ),
@@ -684,7 +1230,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> with AutomaticKeepA
       floatingActionButton: FloatingActionButton(
         onPressed: () => _loadStatistics(forceRefresh: true),
         backgroundColor: Theme.of(context).colorScheme.primary,
-        mini: true,
         child: const Icon(Icons.refresh),
       ),
     );

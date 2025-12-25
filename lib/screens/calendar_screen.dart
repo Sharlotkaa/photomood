@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/mood_entry.dart';
 import '../services/database_service.dart';
-import '../widgets/pull_to_refresh_wrapper.dart'; // Добавьте этот импорт вверху файла
+import '../widgets/pull_to_refresh_wrapper.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -94,6 +94,21 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  
+  Color _getCalendarTextColor(DateTime day, bool isToday) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
+    if (day.month != _focusedDay.month) {
+      return isDarkMode ? Colors.grey[600]! : Colors.grey;
+    }
+    
+    if (isToday) {
+      return isDarkMode ? Colors.lightBlue[300]! : Colors.blue;
+    }
+    
+    return isDarkMode ? Colors.white : Colors.black;
+  }
+
   Widget _buildDayContent(DateTime day, List<dynamic> events) {
     final normalizedDay = DateTime(day.year, day.month, day.day);
     final entry = _entries[normalizedDay];
@@ -108,9 +123,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
             day.day.toString(),
             style: TextStyle(
               fontSize: 14,
-              color: day.month == _focusedDay.month 
-                ? (isToday ? Colors.blue : Colors.black)
-                : Colors.grey,
+              
+              color: _getCalendarTextColor(day, isToday),
               fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
             ),
           ),
@@ -141,6 +155,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildPhotoNoteItem(MoodEntry entry, int index) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return GestureDetector(
       onTap: () {
         Navigator.pushNamed(
@@ -154,10 +170,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         width: 180,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
+         
+          color: isDarkMode ? Colors.grey[800]! : Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
+              color: Colors.grey.withOpacity(isDarkMode ? 0.3 : 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -181,9 +198,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 children: [
                   Text(
                     '${entry.date.day}.${entry.date.month}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
+                      // ИСПРАВЛЕНО: Цвет текста адаптируется к теме
+                      color: isDarkMode ? Colors.white : Colors.black,
                     ),
                   ),
                   Container(
@@ -201,13 +220,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
             ),
             
-            // Изображение (если есть)
+         
             if (entry.imagePath.isNotEmpty)
               Container(
                 height: 120,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  
+                  color: isDarkMode ? Colors.grey[700]! : Colors.grey[100],
                 ),
                 child: FutureBuilder<Uint8List?>(
                   future: kIsWeb 
@@ -273,9 +293,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     children: [
                       Text(
                         entry.note ?? '',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           height: 1.3,
+                        
+                          color: isDarkMode ? Colors.white : Colors.black,
                         ),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
@@ -306,6 +328,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('PhotoMood'),
@@ -322,7 +346,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
               Navigator.pushNamed(context, '/statistics');
             },
           ),
-          // Добавляем иконку ответов
           IconButton(
             icon: const Icon(Icons.question_answer),
             onPressed: () {
@@ -343,7 +366,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
-                  // Календарь с фиксированной высотой
+                  
                   SizedBox(
                     height: MediaQuery.of(context).size.height * 0.55,
                     child: Padding(
@@ -385,39 +408,80 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         onFormatChanged: (format) {
                           setState(() => _calendarFormat = format);
                         },
+                       
                         calendarStyle: CalendarStyle(
+                          defaultTextStyle: TextStyle(
+                            color: isDarkMode ? Colors.white : Colors.black,
+                          ),
+                          outsideTextStyle: TextStyle(
+                            color: isDarkMode ? Colors.grey[600] : Colors.grey,
+                          ),
+                          weekendTextStyle: TextStyle(
+                            color: isDarkMode 
+                                ? Colors.white.withOpacity(0.7) 
+                                : Colors.black.withOpacity(0.7),
+                          ),
                           todayDecoration: BoxDecoration(
                             color: Colors.blue.withOpacity(0.2),
                             shape: BoxShape.circle,
+                          ),
+                          todayTextStyle: TextStyle(
+                            color: isDarkMode ? Colors.lightBlue[300] : Colors.blue,
+                            fontWeight: FontWeight.bold,
                           ),
                           selectedDecoration: BoxDecoration(
                             color: Colors.blue.withOpacity(0.4),
                             shape: BoxShape.circle,
                           ),
+                          selectedTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                       
                           markersAlignment: Alignment.bottomCenter,
                           markersMaxCount: 1,
                         ),
-                        headerStyle: const HeaderStyle(
+                        headerStyle: HeaderStyle(
                           formatButtonVisible: false,
                           titleCentered: true,
                           titleTextStyle: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
+                            color: isDarkMode ? Colors.white : Colors.black,
                           ),
-                          leftChevronIcon: Icon(Icons.chevron_left, size: 24),
-                          rightChevronIcon: Icon(Icons.chevron_right, size: 24),
-                          headerPadding: EdgeInsets.symmetric(vertical: 8),
-                          leftChevronMargin: EdgeInsets.only(left: 16),
-                          rightChevronMargin: EdgeInsets.only(right: 16),
+                          leftChevronIcon: Icon(
+                            Icons.chevron_left, 
+                            size: 24,
+                            color: isDarkMode ? Colors.white : Colors.black,
+                          ),
+                          rightChevronIcon: Icon(
+                            Icons.chevron_right, 
+                            size: 24,
+                            color: isDarkMode ? Colors.white : Colors.black,
+                          ),
+                          headerPadding: const EdgeInsets.symmetric(vertical: 8),
+                          leftChevronMargin: const EdgeInsets.only(left: 16),
+                          rightChevronMargin: const EdgeInsets.only(right: 16),
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: isDarkMode ? Colors.grey[800]! : Colors.grey[200]!,
+                                width: 1,
+                              ),
+                            ),
+                          ),
                         ),
-                        daysOfWeekStyle: const DaysOfWeekStyle(
+                        
+                        daysOfWeekStyle: DaysOfWeekStyle(
                           weekdayStyle: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
+                            color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
                           ),
                           weekendStyle: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
+                            color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
                           ),
                         ),
                         calendarBuilders: CalendarBuilders(
@@ -430,6 +494,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           selectedBuilder: (context, day, focusedDay) {
                             return _buildDayContent(day, []);
                           },
+                          outsideBuilder: (context, day, focusedDay) {
+                            final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+                            return Center(
+                              child: Text(
+                                day.day.toString(),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: isDarkMode ? Colors.grey[600] : Colors.grey,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -438,23 +514,24 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   // Разделитель
                   Container(
                     height: 1,
-                    color: Colors.grey[200],
+                    color: isDarkMode ? Colors.grey[800] : Colors.grey[200],
                     margin: const EdgeInsets.symmetric(horizontal: 16),
                   ),
                   
                   const SizedBox(height: 16),
                   
-                  // Заголовок для фото и заметок
+               
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
+                        Text(
                           'Недавние фото и заметки',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
+                            color: isDarkMode ? Colors.white : Colors.black,
                           ),
                         ),
                         if (_recentPhotoEntries.isNotEmpty)
@@ -467,9 +544,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                 ),
                               );
                             },
-                            child: const Text(
+                            child: Text(
                               'Все',
-                              style: TextStyle(fontSize: 12),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDarkMode ? Colors.blue[300] : Colors.blue,
+                              ),
                             ),
                           ),
                       ],
@@ -478,7 +558,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   
                   const SizedBox(height: 12),
                   
-                  // Фото и заметки
+                  
                   if (_recentPhotoEntries.isNotEmpty)
                     SizedBox(
                       height: 160,
@@ -496,7 +576,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       height: 140,
                       margin: const EdgeInsets.symmetric(horizontal: 16),
                       decoration: BoxDecoration(
-                        color: Colors.grey[50],
+                        color: isDarkMode ? Colors.grey[800] : Colors.grey[50],
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Center(
@@ -506,14 +586,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             Icon(
                               Icons.photo_library,
                               size: 50,
-                              color: Colors.grey[300],
+                              color: isDarkMode ? Colors.grey[600] : Colors.grey[300],
                             ),
                             const SizedBox(height: 8),
-                            const Text(
+                            Text(
                               'Пока нет фото и заметок',
                               style: TextStyle(
                                 fontSize: 14,
-                                color: Colors.grey,
+                                color: isDarkMode ? Colors.grey[400] : Colors.grey,
                               ),
                             ),
                           ],
@@ -523,7 +603,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   
                   const SizedBox(height: 20),
                   
-                  // Кнопка добавления записи
+                  
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: ElevatedButton.icon(
@@ -534,10 +614,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           arguments: DateTime.now(),
                         );
                       },
-                      icon: const Icon(Icons.add_a_photo, size: 20),
-                      label: const Text(
+                      icon: Icon(
+                        Icons.add_a_photo, 
+                        size: 20,
+                        color: isDarkMode ? Colors.black : Colors.white,
+                      ),
+                      label: Text(
                         'Добавить запись на сегодня',
-                        style: TextStyle(fontSize: 14),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDarkMode ? Colors.black : Colors.white,
+                        ),
                       ),
                       style: ElevatedButton.styleFrom(
                         minimumSize: const Size(double.infinity, 48),
@@ -563,6 +650,8 @@ class _AllPhotosNotesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Все фото и заметки'),
@@ -579,14 +668,14 @@ class _AllPhotosNotesScreen extends StatelessWidget {
                   Icon(
                     Icons.photo_library,
                     size: 80,
-                    color: Colors.grey[300],
+                    color: isDarkMode ? Colors.grey[600] : Colors.grey[300],
                   ),
                   const SizedBox(height: 20),
-                  const Text(
+                  Text(
                     'Пока нет фото и заметок',
                     style: TextStyle(
                       fontSize: 18,
-                      color: Colors.grey,
+                      color: isDarkMode ? Colors.grey[400] : Colors.grey,
                     ),
                   ),
                 ],
@@ -610,6 +699,8 @@ class _AllPhotosNotesScreen extends StatelessWidget {
   }
 
   Widget _buildPhotoNoteItem(MoodEntry entry, BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return GestureDetector(
       onTap: () {
         Navigator.pushNamed(
@@ -621,10 +712,10 @@ class _AllPhotosNotesScreen extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
+          color: isDarkMode ? Colors.grey[800]! : Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
+              color: Colors.grey.withOpacity(isDarkMode ? 0.3 : 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -648,9 +739,10 @@ class _AllPhotosNotesScreen extends StatelessWidget {
                 children: [
                   Text(
                     '${entry.date.day}.${entry.date.month}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
+                      color: isDarkMode ? Colors.white : Colors.black,
                     ),
                   ),
                   Container(
@@ -668,12 +760,12 @@ class _AllPhotosNotesScreen extends StatelessWidget {
               ),
             ),
             
-            // Изображение
+      
             if (entry.imagePath.isNotEmpty)
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: isDarkMode ? Colors.grey[700]! : Colors.grey[100],
                   ),
                   child: FutureBuilder<Uint8List?>(
                     future: kIsWeb 
@@ -732,9 +824,10 @@ class _AllPhotosNotesScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(8),
                 child: Text(
                   entry.note!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     height: 1.3,
+                    color: isDarkMode ? Colors.white : Colors.black,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
